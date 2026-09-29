@@ -202,7 +202,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.post("/documents/{document_id}/corrections/{correction_id}/gold")
     def mark_gold(document_id: str, correction_id: str):
         with get_session(settings.database_url) as session:
-            target = session.get(Correction, correction_id)
+            # Filter by id AND document_id together (not a bare session.get by
+            # id) so a correction_id that's real but belongs to a different
+            # document is treated as not-found instead of being adopted into
+            # this document's gold state.
+            target = session.query(Correction).filter_by(
+                id=correction_id, document_id=document_id
+            ).first()
             if target is None:
                 return {"error": "correction not found"}
             if not target.crossfoot_passed:
