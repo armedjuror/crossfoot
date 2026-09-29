@@ -2610,28 +2610,7 @@ Expected: FAIL with 404 before Step 4.
 {% endblock %}
 ```
 
-- [ ] **Step 4: Add the routes to `crossfoot/app.py`**
-
-```python
-    @app.get("/documents")
-    def documents_list(show_holdout: bool = False):
-        from sqlalchemy import select
-        with get_session(settings.database_url) as session:
-            query = select(Document)
-            if not show_holdout:
-                query = query.where(Document.split == "train")
-            docs = session.scalars(query.order_by(Document.uploaded_at.desc())).all()
-            rows = []
-            for doc in docs:
-                latest = session.scalars(
-                    select(Parse).where(Parse.document_id == doc.id)
-                    .order_by(Parse.created_at.desc()).limit(1)
-                ).first()
-                rows.append((doc, latest.outcome if latest else None))
-        return TEMPLATES.TemplateResponse(request=None, name="documents.html", context={"rows": rows})
-```
-
-Note: `TemplateResponse` needs a `Request` — change the signature to accept `request: Request` and pass it through, matching the `upload_form` route's pattern:
+- [ ] **Step 4: Add the routes to `crossfoot/app.py`** (both routes take `request: Request` as their first parameter, matching the `upload_form` route's pattern from Task 16, because `TemplateResponse` requires it)
 
 ```python
     @app.get("/documents")
