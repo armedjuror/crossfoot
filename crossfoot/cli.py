@@ -119,8 +119,11 @@ def _cmd_synth(args):
 
 
 def _cmd_regress(args):
+    import json
+
     from crossfoot.pipeline.regress import run_regression
-    run_regression(holdout=args.holdout)
+    summary = run_regression(holdout=args.holdout)
+    print(json.dumps(summary, indent=2, default=str))
     return 0
 
 
