@@ -29,12 +29,23 @@ def test_classify_picks_highest_scoring_layout(monkeypatch):
     assert runner_up.slug == "a"
 
 
-def test_classify_below_threshold_is_unsupported(monkeypatch):
+def test_classify_single_layout_has_no_runner_up(monkeypatch):
     monkeypatch.setattr("crossfoot.doctypes.bank_statement.registry._REGISTRY",
                          [_FakeLayout("a", 0.2)])
     best, runner_up = classify(_empty_doc())
     assert best.score <= 0.5
     assert runner_up is None
+
+
+def test_classify_below_threshold_still_returns_runner_up(monkeypatch):
+    monkeypatch.setattr("crossfoot.doctypes.bank_statement.registry._REGISTRY",
+                         [_FakeLayout("a", 0.2), _FakeLayout("b", 0.1)])
+    best, runner_up = classify(_empty_doc())
+    assert best.score <= 0.5
+    assert best.slug == "a"
+    assert runner_up is not None
+    assert runner_up.slug == "b"
+    assert runner_up.score == 0.1
 
 
 def test_register_appends_to_registry():

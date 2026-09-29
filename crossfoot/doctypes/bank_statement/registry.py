@@ -30,8 +30,6 @@ def classify(doc: ExtractedDoc) -> tuple[LayoutMatch, LayoutMatch | None]:
 
     best_layout, best_score = scored[0]
     best = LayoutMatch(slug=best_layout.slug, score=best_score, trusted=False)
-    if best_score <= THRESHOLD:
-        return best, None
     if len(scored) < 2:
         return best, None
     runner_layout, runner_score = scored[1]
