@@ -66,7 +66,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             try:
                 extracted = extract(str(storage_path), password=password)
             except BadPasswordError:
-                parse_row = Parse(tenant_id=tenant_id, document_id=doc_row.id,
+                parse_row = Parse(tenant_id=tenant_id, document_id=document_id,
                                    parser_version="dirty", outcome="bad_password")
                 session.add(parse_row)
                 session.commit()
