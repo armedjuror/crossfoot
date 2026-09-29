@@ -26,10 +26,12 @@ def _insert_document(session, tenant_id, storage_path, sha256):
     return doc
 
 
-def test_run_regression_one_broken_document_does_not_abort_the_run(monkeypatch):
+def test_run_regression_one_broken_document_does_not_abort_the_run(monkeypatch, capsys):
     """A single document's parse()/validate() exception must be counted, not
     let an unhandled exception crash the whole regression run and discard
-    every other document's already-computed counts."""
+    every other document's already-computed counts. It must also leave a
+    diagnostic trace on stderr -- a bare counter increment isn't enough for
+    an operator to find out *why* documents broke."""
     import crossfoot.doctypes.bank_statement.layouts  # noqa: F401  (register layouts)
     from crossfoot.db import get_session
     from crossfoot.doctypes.bank_statement.registry import _REGISTRY
@@ -65,12 +67,20 @@ def test_run_regression_one_broken_document_does_not_abort_the_run(monkeypatch):
     # The run completed and wrote a total that includes both documents.
     assert summary["documents_run"] >= 2
 
+    # The exception's type and message actually reached stderr, not just a
+    # silent counter bump.
+    captured = capsys.readouterr()
+    assert "RuntimeError" in captured.err
+    assert "simulated parser regression" in captured.err
+    assert "hdfc_savings_v1" in captured.err
 
-def test_run_regression_missing_storage_file_is_counted_not_crashed(tmp_path):
+
+def test_run_regression_missing_storage_file_is_counted_not_crashed(tmp_path, capsys):
     """A Document row whose storage_path file has since been deleted (or
     never existed) must not raise out of run_regression -- extract() itself
     can throw for reasons other than BadPasswordError, and a single stale
-    row must not abort the whole run."""
+    row must not abort the whole run. The failure must also be traceable on
+    stderr, not just reflected as an opaque counter increment."""
     from crossfoot.db import get_session
 
     settings = get_settings()
@@ -81,12 +91,17 @@ def test_run_regression_missing_storage_file_is_counted_not_crashed(tmp_path):
             sa_text("select id from tenants where name='default'")
         ).scalar_one()
         pid = os.getpid()
-        _insert_document(
+        doc = _insert_document(
             session, tenant_id, missing_path, f"regresstest-missing-{pid}-{id(session)}"
         )
         session.commit()
+        document_id = str(doc.id)
 
     summary = run_regression(holdout=False)  # must not raise
 
     assert summary["per_layout"]["_error"]["other"] >= 1
     assert summary["documents_run"] >= 1
+
+    captured = capsys.readouterr()
+    assert document_id in captured.err
+    assert "FileNotFoundError" in captured.err

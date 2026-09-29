@@ -1,3 +1,4 @@
+import sys
 from collections import defaultdict
 
 from sqlalchemy import select
@@ -33,11 +34,18 @@ def run_regression(holdout: bool = False) -> dict:
             except BadPasswordError:
                 per_layout["_bad_password"]["other"] += 1
                 continue
-            except Exception:
+            except Exception as exc:
                 # e.g. a stale Document row whose storage_path file has since
                 # been deleted, or a corrupt PDF. One bad document must not
                 # abort the whole run and discard every other document's
-                # already-computed counts.
+                # already-computed counts. Print to stderr so the counter
+                # increment isn't the only trace of what broke -- an operator
+                # staring at "_error": 15 needs to know why, not just that.
+                print(
+                    f"regress: {doc.id} failed during extract: "
+                    f"{type(exc).__name__}: {exc}",
+                    file=sys.stderr,
+                )
                 per_layout["_error"]["other"] += 1
                 continue
 
@@ -69,7 +77,12 @@ def run_regression(holdout: bool = False) -> dict:
                     result, LayoutMatch(best.slug, best.score, trusted=True),
                     structurally_clean=True,
                 )
-            except Exception:
+            except Exception as exc:
+                print(
+                    f"regress: {doc.id} failed during parse/validate "
+                    f"(layout={best.slug}): {type(exc).__name__}: {exc}",
+                    file=sys.stderr,
+                )
                 bucket = per_layout[best.slug]
                 bucket["error"] = bucket.get("error", 0) + 1
                 continue
