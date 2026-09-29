@@ -43,3 +43,16 @@ def test_dates_ordered_failure_is_never_document_inconsistent():
     layout = LayoutMatch(slug="x", score=1.0, trusted=True)
     result = _result(False, failed_checks=["dates_ordered"])
     assert decide_outcome(result, layout, structurally_clean=True) == "parse_failed"
+
+
+def test_shape_errors_is_parse_failed_even_when_trusted():
+    layout = LayoutMatch(slug="x", score=1.0, trusted=True)
+    result = _result(False, breaks=[RowBreak(0, 100, 99)], failed_checks=["running_balance"],
+                      shape_errors=[0])
+    assert decide_outcome(result, layout, structurally_clean=True) == "parse_failed"
+
+
+def test_dates_in_period_failure_is_never_document_inconsistent():
+    layout = LayoutMatch(slug="x", score=1.0, trusted=True)
+    result = _result(False, failed_checks=["dates_in_period"])
+    assert decide_outcome(result, layout, structurally_clean=True) == "parse_failed"
