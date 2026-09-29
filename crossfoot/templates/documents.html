@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Documents</h1>
+<table>
+  <tr><th>ID</th><th>Type</th><th>Country</th><th>Split</th><th>Outcome</th></tr>
+  {% for doc, outcome in rows %}
+  <tr>
+    <td><a href="/documents/{{ doc.id }}">{{ doc.id }}</a></td>
+    <td>{{ doc.document_type }}</td><td>{{ doc.country }}</td>
+    <td>{{ doc.split }}</td><td>{{ outcome or "pending" }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% endblock %}

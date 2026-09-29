@@ -108,9 +108,33 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         return RedirectResponse(f"/documents/{document_id}", status_code=303)
 
+    @app.get("/documents")
+    def documents_list(request: Request, show_holdout: bool = False):
+        from sqlalchemy import select
+        with get_session(settings.database_url) as session:
+            query = select(Document)
+            if not show_holdout:
+                query = query.where(Document.split == "train")
+            docs = session.scalars(query.order_by(Document.uploaded_at.desc())).all()
+            rows = []
+            for doc in docs:
+                latest = session.scalars(
+                    select(Parse).where(Parse.document_id == doc.id)
+                    .order_by(Parse.created_at.desc()).limit(1)
+                ).first()
+                rows.append((doc, latest.outcome if latest else None))
+        return TEMPLATES.TemplateResponse(request, "documents.html", {"rows": rows})
+
     @app.get("/documents/{document_id}")
-    def document_detail(document_id: str):
-        return {"document_id": document_id}
+    def document_detail(request: Request, document_id: str):
+        from sqlalchemy import select
+        with get_session(settings.database_url) as session:
+            doc = session.get(Document, document_id)
+            parse = session.scalars(
+                select(Parse).where(Parse.document_id == document_id)
+                .order_by(Parse.created_at.desc()).limit(1)
+            ).first()
+        return TEMPLATES.TemplateResponse(request, "document_detail.html", {"doc": doc, "parse": parse})
 
     return app
 

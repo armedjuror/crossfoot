@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Document {{ doc.id }}</h1>
+<p>Outcome: {{ parse.outcome if parse else "no parse" }}</p>
+<p>Failed checks: {{ parse.failed_checks if parse else [] }}</p>
+<pre>{{ parse.output_json if parse else {} }}</pre>
+{% endblock %}
