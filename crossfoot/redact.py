@@ -403,7 +403,7 @@ def clean_document(doc):
     return rebuilt
 
 
-def main():
+def main(argv=None):
     ap = argparse.ArgumentParser(description="True redaction of personal data in statement PDFs.")
     ap.add_argument("input")
     ap.add_argument("output")
@@ -415,7 +415,7 @@ def main():
                     help="Manual rectangle to remove, in PDF points; page is 1-based. Repeatable.")
     ap.add_argument("--password-prompt", action="store_true", help="Ask for the PDF password")
     ap.add_argument("--dry-run", action="store_true", help="List what would happen; write nothing")
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
 
     terms = [t for t in args.terms if t.strip()]
     if args.terms_file:
