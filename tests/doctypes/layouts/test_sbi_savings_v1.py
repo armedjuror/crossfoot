@@ -50,6 +50,29 @@ def test_matches_scores_zero_without_bank_name_even_with_statement_and_balance_a
     assert SbiSavingsV1().matches(doc) == 0.0
 
 
+def test_matches_scores_low_when_bank_name_tokens_are_scattered_not_a_phrase():
+    # A different bank's statement can easily contain a NEFT/RTGS/UPI
+    # transfer narration naming SBI as the counterparty bank -- e.g. a
+    # narration segment naming the counterparty bank on one line, and the
+    # word "India" appearing unrelated elsewhere (a branch/country field).
+    # None of these form the contiguous "State Bank of India" letterhead
+    # phrase, so this must NOT be enough to claim the document as SBI, even
+    # though the individual tokens "State", "Bank", and "India" are all
+    # present somewhere in the document (this was the exact false-positive
+    # shape found in a real control file during review).
+    words = _row(536.2, "01/09/2026", "WDL TF", "UPI/DR//GROCERY", "-", "1,563.00", None, "23,334.37")
+    words = words + [
+        Word("Balance", 512.2, 20.0, 552.2, 29.0, 0),
+        # "Bank" appears in a narration-adjacent word on the transaction line.
+        Word("Bank", 200.0, 536.2, 225.0, 545.2, 0),
+        # "State" and "India" appear far away, on an unrelated line/section.
+        Word("State", 60.0, 700.0, 90.0, 709.0, 0),
+        Word("India", 400.0, 750.0, 430.0, 759.0, 0),
+    ]
+    doc = ExtractedDoc(pages=[words], page_count=1, is_scanned=False, first_page_text="STATEMENT OF ACCOUNT")
+    assert SbiSavingsV1().matches(doc) == 0.0
+
+
 def test_parse_debit_and_credit_rows_with_three_line_grouping():
     words = (
         _row(536.2, "01/09/2026", "WDL TF", "UPI/DR//GROCERY", "-", "1,563.00", None, "23,334.37")

@@ -2,7 +2,7 @@ from datetime import date as date_type
 
 from crossfoot.countries.india import parse_amount, parse_date
 from crossfoot.pipeline.tables import band_rows
-from crossfoot.types import ExtractedDoc, ParsedStatement, Txn
+from crossfoot.types import ExtractedDoc, ParsedStatement, Txn, Word
 
 # Column x-ranges measured from the real SBI e-statement (header row has no
 # extractable text; only "Balance" survives, so these are hand-anchored).
@@ -14,11 +14,45 @@ _REF_X, _DEBIT_X, _CREDIT_X, _BALANCE_X = 290.0, 340.0, 400.0, 480.0
 # -- it can be one page later. Checking the tokenized words across every page
 # catches that case. The bank name is also required: "STATEMENT OF ACCOUNT",
 # a "Balance" column header word, and "UPI/..." narrations are all generic
-# enough that another Indian bank's e-statement can carry every one of them,
-# so requiring "State"/"Bank"/"India" print tokens (which appear on SBI's own
-# statement page but not on other banks' statements) is what keeps this
-# layout from also claiming a differently-banked document.
-_BANK_NAME_TOKENS = {"State", "Bank", "India"}
+# enough that another Indian bank's e-statement can carry every one of them.
+#
+# Requiring the bank-name phrase must be a *contiguous, same-line* match, not
+# scattered set-membership: SBI is India's largest bank and an extremely
+# common NEFT/RTGS/UPI counterparty, so an unrelated bank's statement can
+# easily contain the words "State", "Bank", and "India" individually, just
+# scattered across different narration lines rather than forming the actual
+# letterhead phrase. Measured on the real SBI statement's own letterhead
+# line: the four words sit on one line with tight (~4pt) gaps between them,
+# in order; _BANK_NAME_MAX_GAP is set well above that but still far below
+# the width of an unrelated word or narration segment, so a same-line
+# coincidence of all four tokens in order is required, not just presence
+# anywhere in the document.
+_BANK_NAME_PHRASE = ("state", "bank", "of", "india")
+_BANK_NAME_LINE_TOLERANCE = 2.0
+_BANK_NAME_MAX_GAP = 15.0
+
+
+def _has_bank_name_phrase(words: list[Word]) -> bool:
+    starts = [w for w in words if w.text.lower() == _BANK_NAME_PHRASE[0]]
+    for start in starts:
+        same_line = sorted(
+            (w for w in words if abs(w.y0 - start.y0) <= _BANK_NAME_LINE_TOLERANCE and w.x0 >= start.x0),
+            key=lambda w: w.x0,
+        )
+        prev = start
+        matched = 1
+        for token in _BANK_NAME_PHRASE[1:]:
+            nxt = next(
+                (w for w in same_line if w.text.lower() == token and w.x0 > prev.x0),
+                None,
+            )
+            if nxt is None or (nxt.x0 - prev.x1) > _BANK_NAME_MAX_GAP:
+                break
+            prev = nxt
+            matched += 1
+        if matched == len(_BANK_NAME_PHRASE):
+            return True
+    return False
 
 
 # A handful of non-transaction lines (a "Statement From ... to ..." period
@@ -68,7 +102,7 @@ class SbiSavingsV1:
             texts = {w.text for w in words}
             if not has_statement_phrase and {"STATEMENT", "ACCOUNT"} <= texts:
                 has_statement_phrase = True
-            if _BANK_NAME_TOKENS <= texts:
+            if not has_bank_name and _has_bank_name_phrase(words):
                 has_bank_name = True
             if "Balance" in texts:
                 has_balance = True
