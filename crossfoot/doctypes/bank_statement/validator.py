@@ -20,6 +20,8 @@ def _chain(txns: list[Txn], opening: Decimal):
 
 
 def _derive_opening(txns: list[Txn]):
+    if not txns:
+        return None
     t = txns[0]
     if t.balance is None:
         return None
@@ -58,7 +60,8 @@ def validate_bank_statement(p: ParsedStatement) -> CrossfootResult:
     if opening is None:
         opening, derived = _derive_opening(txns), True
     if opening is None:
-        return CrossfootResult(False, checks, ["no_opening_balance"], rows_checked=len(txns))
+        failed.append("no_opening_balance")
+        return CrossfootResult(False, checks, failed, shape_errors=shape, rows_checked=len(txns))
 
     running, breaks, unchecked = _chain(txns, opening)
     if breaks:

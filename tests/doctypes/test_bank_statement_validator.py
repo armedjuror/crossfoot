@@ -72,3 +72,20 @@ def test_page_continuity_break():
         _stmt(txns, closing=Decimal("950.00"), brought_forward={1: Decimal("999.00")})
     )
     assert "page_continuity" in result.failed_checks
+
+
+def test_empty_transactions_with_no_opening_balance_does_not_crash():
+    result = validate_bank_statement(_stmt([], opening=None))
+    assert not result.passed
+    assert "no_opening_balance" in result.failed_checks
+
+
+def test_row_shape_failure_survives_no_opening_balance_early_return():
+    txns = [
+        Txn(date(2026, 9, 1), "a", None, Decimal("100.00"), Decimal("50.00"), None, 0),
+    ]
+    result = validate_bank_statement(_stmt(txns, opening=None))
+    assert not result.passed
+    assert "row_shape" in result.failed_checks
+    assert "no_opening_balance" in result.failed_checks
+    assert result.shape_errors == [0]
