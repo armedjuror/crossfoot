@@ -1,0 +1,29 @@
+[project]
+name = "crossfoot"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "jinja2",
+    "python-multipart",
+    "sqlalchemy>=2.0",
+    "alembic",
+    "psycopg[binary]",
+    "pymupdf",
+    "reportlab",
+    "openpyxl",
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[project.scripts]
+crossfoot = "crossfoot.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["crossfoot*"]
