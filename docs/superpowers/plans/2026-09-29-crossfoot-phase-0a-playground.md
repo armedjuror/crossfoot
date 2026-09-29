@@ -2845,6 +2845,7 @@ git commit -m "feat: correction UI backend (revalidate, save, mark gold)"
 
 **Interfaces:**
 - Produces: console entry point `crossfoot` (registered in `pyproject.toml` Task 1) with subcommands `parse`, `redact`, `fixture`, `synth`, dispatched via `argparse`.
+- Consumes: `crossfoot.db.models.Document`/`Correction` (Task 4) — `redact` looks up a document's `storage_path` and `split` before delegating to the redaction script (refusing `split == "holdout"` per Technical PRD §9.2); `fixture` looks up the document's gold `Correction` (`is_gold=True`) and writes its `corrected_json` to the given output path. Both use `crossfoot.config.get_settings()` / `crossfoot.db.get_session()`, the same pattern as `crossfoot/app.py` (Task 16).
 
 - [ ] **Step 1: Move the existing redaction script into the package**
 
@@ -2854,6 +2855,8 @@ git mv terms.txt crossfoot/terms.txt
 ```
 
 Update any relative path the script assumes for `terms.txt` (check the top-level `--terms-file` default, if any, and point it at the moved location or keep it as an explicit CLI arg — do not hardcode a path that breaks when installed as a package).
+
+**Also fix `main()`'s signature while moving the file:** the script currently defines `def main():` and calls `args = ap.parse_args()` (reading `sys.argv` directly), which cannot be invoked programmatically from `crossfoot/cli.py`'s `_cmd_redact` (Step 4 below needs to call it with an explicit argument list, e.g. from a document's real `storage_path`, not from `sys.argv`). Change the signature to `def main(argv=None):` and the parse call to `args = ap.parse_args(argv)` — this is the standard idiom (`argv=None` makes `argparse` default to `sys.argv[1:]`, so `python redact.py in.pdf out.pdf` on the command line is unaffected; passing an explicit list is what makes programmatic invocation possible). Leave everything else in the file unchanged.
 
 - [ ] **Step 2: Write failing CLI tests**
 
@@ -2890,6 +2893,85 @@ def test_synth_command_writes_a_pdf(tmp_path):
     )
     assert result.returncode == 0
     assert list(out_dir.glob("*.pdf"))
+
+
+def test_fixture_command_writes_gold_correction_json(tmp_path):
+    import json
+    import os
+    from sqlalchemy import text as sa_text
+
+    from crossfoot.config import get_settings
+    from crossfoot.db import get_session
+    from crossfoot.db.models import Correction, Document
+
+    db_url = os.environ.get("CROSSFOOT_DATABASE_URL", get_settings().database_url)
+    with get_session(db_url) as session:
+        tenant_id = session.execute(sa_text("select id from tenants where name='default'")).scalar_one()
+        doc = Document(
+            tenant_id=tenant_id, document_type="bank_statement", country="IN", currency="INR",
+            split="train", source="self", owner_label="fixture-test",
+            sha256=f"fixturetest{os.getpid()}{id(session)}",
+        )
+        session.add(doc)
+        session.flush()
+        gold = Correction(
+            tenant_id=tenant_id, document_id=doc.id,
+            corrected_json={"transactions": [], "closing_balance": "0.00"},
+            crossfoot_passed=True, is_gold=True, edit_count=1,
+        )
+        session.add(gold)
+        session.commit()
+        document_id = str(doc.id)
+
+    out_path = tmp_path / "fixture.json"
+    result = subprocess.run(
+        [sys.executable, "-m", "crossfoot.cli", "fixture", document_id, "--out", str(out_path)],
+        capture_output=True, text=True,
+    )
+    assert result.returncode == 0
+    written = json.loads(out_path.read_text())
+    assert written == {"transactions": [], "closing_balance": "0.00"}
+
+
+def test_fixture_command_fails_cleanly_with_no_gold_correction(tmp_path):
+    out_path = tmp_path / "fixture.json"
+    result = subprocess.run(
+        [sys.executable, "-m", "crossfoot.cli", "fixture", "00000000-0000-0000-0000-000000000000",
+         "--out", str(out_path)],
+        capture_output=True, text=True,
+    )
+    assert result.returncode == 1
+    assert not out_path.exists()
+
+
+def test_redact_command_refuses_holdout_document(tmp_path):
+    import os
+    from sqlalchemy import text as sa_text
+
+    from crossfoot.config import get_settings
+    from crossfoot.db import get_session
+    from crossfoot.db.models import Document
+
+    db_url = os.environ.get("CROSSFOOT_DATABASE_URL", get_settings().database_url)
+    with get_session(db_url) as session:
+        tenant_id = session.execute(sa_text("select id from tenants where name='default'")).scalar_one()
+        doc = Document(
+            tenant_id=tenant_id, document_type="bank_statement", country="IN", currency="INR",
+            split="holdout", source="self", owner_label="redact-test",
+            sha256=f"redacttest{os.getpid()}{id(session)}", storage_path=str(tmp_path / "irrelevant.pdf"),
+        )
+        session.add(doc)
+        session.commit()
+        document_id = str(doc.id)
+
+    out_path = tmp_path / "redacted.pdf"
+    result = subprocess.run(
+        [sys.executable, "-m", "crossfoot.cli", "redact", document_id, "--out", str(out_path)],
+        capture_output=True, text=True,
+    )
+    assert result.returncode == 1
+    assert "holdout" in result.stdout.lower()
+    assert not out_path.exists()
 ```
 
 - [ ] **Step 3: Run to verify failure**
@@ -2950,11 +3032,54 @@ def _cmd_parse(args):
 
 def _cmd_redact(args):
     from crossfoot import redact as redact_module
-    return redact_module.main([args.document_id, "--out", args.out])
+    from crossfoot.config import get_settings
+    from crossfoot.db import get_session
+    from crossfoot.db.models import Document
+
+    with get_session(get_settings().database_url) as session:
+        doc_row = session.get(Document, args.document_id)
+        if doc_row is None:
+            print(f"no such document: {args.document_id}")
+            return 1
+        if doc_row.split == "holdout":
+            print("refusing to redact a held-out document (never shared with any tool)")
+            return 1
+        storage_path = doc_row.storage_path
+
+    if not storage_path:
+        print(f"document {args.document_id} has no stored file")
+        return 1
+
+    redact_argv = [storage_path, args.out]
+    if args.password_prompt:
+        redact_argv.append("--password-prompt")
+    try:
+        redact_module.main(redact_argv)
+    except SystemExit as exc:
+        return exc.code if isinstance(exc.code, int) else 1
+    return 0
 
 
 def _cmd_fixture(args):
-    print(f"fixture command: would write {args.out} from document {args.document_id}")
+    import json
+
+    from crossfoot.config import get_settings
+    from crossfoot.db import get_session
+    from crossfoot.db.models import Correction
+
+    with get_session(get_settings().database_url) as session:
+        gold = session.query(Correction).filter_by(
+            document_id=args.document_id, is_gold=True
+        ).first()
+        if gold is None:
+            print(f"no gold correction for document {args.document_id}")
+            return 1
+        corrected_json = gold.corrected_json
+
+    out_path = Path(args.out)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(corrected_json, indent=2, default=str))
+    print(f"wrote {out_path}")
     return 0
 
 
@@ -2998,6 +3123,7 @@ def build_parser():
     p_redact = sub.add_parser("redact")
     p_redact.add_argument("document_id")
     p_redact.add_argument("--out", required=True)
+    p_redact.add_argument("--password-prompt", action="store_true")
     p_redact.set_defaults(func=_cmd_redact)
 
     p_fixture = sub.add_parser("fixture")
