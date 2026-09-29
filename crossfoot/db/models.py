@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
-    CheckConstraint, ForeignKey, ForeignKeyConstraint, Index,
+    CheckConstraint, DateTime, ForeignKey, ForeignKeyConstraint, Index,
     String, UniqueConstraint, text,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
@@ -20,7 +20,9 @@ class Tenant(Base):
         UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
     )
     name: Mapped[str]
-    created_at: Mapped[datetime] = mapped_column(server_default=text("now()"))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
 
 
 class Document(Base):
@@ -54,9 +56,11 @@ class Document(Base):
     storage_path: Mapped[str | None]
     sha256: Mapped[str]
     page_count: Mapped[int | None]
-    is_scanned: Mapped[bool] = mapped_column(default=False)
-    uploaded_at: Mapped[datetime] = mapped_column(server_default=text("now()"))
-    deleted_at: Mapped[datetime | None]
+    is_scanned: Mapped[bool] = mapped_column(default=False, server_default=text("false"))
+    uploaded_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 Index(
@@ -89,11 +93,15 @@ class Parse(Base):
     runner_up_score: Mapped[float | None]
     outcome: Mapped[str]
     crossfoot_passed: Mapped[bool | None]
-    failed_checks: Mapped[list[str]] = mapped_column(ARRAY(String), default=list)
-    used_llm_fallback: Mapped[bool] = mapped_column(default=False)
+    failed_checks: Mapped[list[str]] = mapped_column(
+        ARRAY(String), default=list, server_default=text("'{}'")
+    )
+    used_llm_fallback: Mapped[bool] = mapped_column(default=False, server_default=text("false"))
     output_json: Mapped[dict | None] = mapped_column(JSONB)
     duration_ms: Mapped[int | None]
-    created_at: Mapped[datetime] = mapped_column(server_default=text("now()"))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
 
 
 Index("parses_document_created_idx", Parse.document_id, Parse.created_at.desc())
@@ -118,10 +126,12 @@ class Correction(Base):
     base_parse_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("parses.id"))
     corrected_json: Mapped[dict] = mapped_column(JSONB)
     crossfoot_passed: Mapped[bool]
-    is_gold: Mapped[bool] = mapped_column(default=False)
+    is_gold: Mapped[bool] = mapped_column(default=False, server_default=text("false"))
     edit_count: Mapped[int]
     notes: Mapped[str | None]
-    created_at: Mapped[datetime] = mapped_column(server_default=text("now()"))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
 
 
 Index(
@@ -138,10 +148,12 @@ class LayoutTemplate(Base):
     country: Mapped[str]
     definition: Mapped[dict] = mapped_column(JSONB)
     source_parse_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("parses.id"))
-    validated_successes: Mapped[int] = mapped_column(default=0)
-    active: Mapped[bool] = mapped_column(default=False)
-    trusted: Mapped[bool] = mapped_column(default=False)
-    created_at: Mapped[datetime] = mapped_column(server_default=text("now()"))
+    validated_successes: Mapped[int] = mapped_column(default=0, server_default=text("0"))
+    active: Mapped[bool] = mapped_column(default=False, server_default=text("false"))
+    trusted: Mapped[bool] = mapped_column(default=False, server_default=text("false"))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )
 
 
 class RegressionRun(Base):
@@ -157,4 +169,6 @@ class RegressionRun(Base):
     split: Mapped[str]
     documents_run: Mapped[int]
     per_layout: Mapped[dict] = mapped_column(JSONB)
-    created_at: Mapped[datetime] = mapped_column(server_default=text("now()"))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()")
+    )

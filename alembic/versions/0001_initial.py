@@ -1,8 +1,8 @@
 """initial schema
 
-Revision ID: ccd26485d5cb
+Revision ID: cc4862aee54e
 Revises: 
-Create Date: 2026-09-29 06:15:57.060772
+Create Date: 2026-09-29 06:29:58.008515
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
-revision: str = 'ccd26485d5cb'
+revision: str = 'cc4862aee54e'
 down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -28,14 +28,14 @@ def upgrade() -> None:
     sa.Column('split', sa.String(), nullable=False),
     sa.Column('documents_run', sa.Integer(), nullable=False),
     sa.Column('per_layout', postgresql.JSONB(astext_type=sa.Text()), nullable=False),
-    sa.Column('created_at', sa.DateTime(), server_default=sa.text('now()'), nullable=False),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.CheckConstraint("split IN ('train','holdout','all')", name='regression_runs_split_check'),
     sa.PrimaryKeyConstraint('id')
     )
     op.create_table('tenants',
     sa.Column('id', sa.UUID(), server_default=sa.text('gen_random_uuid()'), nullable=False),
     sa.Column('name', sa.String(), nullable=False),
-    sa.Column('created_at', sa.DateTime(), server_default=sa.text('now()'), nullable=False),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.PrimaryKeyConstraint('id')
     )
     op.create_table('documents',
@@ -51,9 +51,9 @@ def upgrade() -> None:
     sa.Column('storage_path', sa.String(), nullable=True),
     sa.Column('sha256', sa.String(), nullable=False),
     sa.Column('page_count', sa.Integer(), nullable=True),
-    sa.Column('is_scanned', sa.Boolean(), nullable=False),
-    sa.Column('uploaded_at', sa.DateTime(), server_default=sa.text('now()'), nullable=False),
-    sa.Column('deleted_at', sa.DateTime(), nullable=True),
+    sa.Column('is_scanned', sa.Boolean(), server_default=sa.text('false'), nullable=False),
+    sa.Column('uploaded_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.Column('deleted_at', sa.DateTime(timezone=True), nullable=True),
     sa.CheckConstraint("document_type IN ('bank_statement','credit_card_bill','invoice')", name='documents_document_type_check'),
     sa.CheckConstraint("source = 'self' OR consent_note IS NOT NULL", name='documents_consent_check'),
     sa.CheckConstraint("source IN ('self','family_friend','concierge')", name='documents_source_check'),
@@ -73,11 +73,11 @@ def upgrade() -> None:
     sa.Column('runner_up_score', sa.Double(), nullable=True),
     sa.Column('outcome', sa.String(), nullable=False),
     sa.Column('crossfoot_passed', sa.Boolean(), nullable=True),
-    sa.Column('failed_checks', postgresql.ARRAY(sa.String()), nullable=False),
-    sa.Column('used_llm_fallback', sa.Boolean(), nullable=False),
+    sa.Column('failed_checks', postgresql.ARRAY(sa.String()), server_default=sa.text("'{}'"), nullable=False),
+    sa.Column('used_llm_fallback', sa.Boolean(), server_default=sa.text('false'), nullable=False),
     sa.Column('output_json', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
     sa.Column('duration_ms', sa.Integer(), nullable=True),
-    sa.Column('created_at', sa.DateTime(), server_default=sa.text('now()'), nullable=False),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.CheckConstraint("outcome IN ('verified','document_inconsistent','parse_failed','unsupported','scanned','bad_password','error','needs_review')", name='parses_outcome_check'),
     sa.ForeignKeyConstraint(['document_id', 'tenant_id'], ['documents.id', 'documents.tenant_id'], ),
     sa.PrimaryKeyConstraint('id')
@@ -90,10 +90,10 @@ def upgrade() -> None:
     sa.Column('base_parse_id', sa.UUID(), nullable=True),
     sa.Column('corrected_json', postgresql.JSONB(astext_type=sa.Text()), nullable=False),
     sa.Column('crossfoot_passed', sa.Boolean(), nullable=False),
-    sa.Column('is_gold', sa.Boolean(), nullable=False),
+    sa.Column('is_gold', sa.Boolean(), server_default=sa.text('false'), nullable=False),
     sa.Column('edit_count', sa.Integer(), nullable=False),
     sa.Column('notes', sa.String(), nullable=True),
-    sa.Column('created_at', sa.DateTime(), server_default=sa.text('now()'), nullable=False),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.CheckConstraint('NOT is_gold OR crossfoot_passed', name='corrections_gold_passed_check'),
     sa.ForeignKeyConstraint(['base_parse_id'], ['parses.id'], ),
     sa.ForeignKeyConstraint(['document_id', 'tenant_id'], ['documents.id', 'documents.tenant_id'], ),
@@ -106,10 +106,10 @@ def upgrade() -> None:
     sa.Column('country', sa.String(), nullable=False),
     sa.Column('definition', postgresql.JSONB(astext_type=sa.Text()), nullable=False),
     sa.Column('source_parse_id', sa.UUID(), nullable=True),
-    sa.Column('validated_successes', sa.Integer(), nullable=False),
-    sa.Column('active', sa.Boolean(), nullable=False),
-    sa.Column('trusted', sa.Boolean(), nullable=False),
-    sa.Column('created_at', sa.DateTime(), server_default=sa.text('now()'), nullable=False),
+    sa.Column('validated_successes', sa.Integer(), server_default=sa.text('0'), nullable=False),
+    sa.Column('active', sa.Boolean(), server_default=sa.text('false'), nullable=False),
+    sa.Column('trusted', sa.Boolean(), server_default=sa.text('false'), nullable=False),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.ForeignKeyConstraint(['source_parse_id'], ['parses.id'], ),
     sa.PrimaryKeyConstraint('slug')
     )
