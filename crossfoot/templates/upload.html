@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Upload</h1>
+<form method="post" action="/upload" enctype="multipart/form-data">
+  <input type="file" name="file" required>
+  <select name="document_type"><option value="bank_statement">Bank statement</option></select>
+  <input type="text" name="country" value="IN">
+  <select name="split"><option value="train">train</option><option value="holdout">holdout</option></select>
+  <select name="source">
+    <option value="self">self</option><option value="family_friend">family_friend</option>
+    <option value="concierge">concierge</option>
+  </select>
+  <input type="text" name="owner_label" placeholder="owner label" required>
+  <input type="text" name="consent_note" placeholder="consent note (required unless source=self)">
+  <input type="password" name="password" placeholder="PDF password (optional)">
+  <button type="submit">Parse</button>
+</form>
+{% endblock %}

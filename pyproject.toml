@@ -16,7 +16,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest"]
+dev = ["pytest", "httpx2"]
 
 [project.scripts]
 crossfoot = "crossfoot.cli:main"
