@@ -67,11 +67,6 @@ def run_regression(holdout: bool = False) -> dict:
             try:
                 layout = next(l for l in _REGISTRY if l.slug == best.slug)
                 parsed = layout.parse(extracted)
-                if parsed.opening_balance is None and parsed.transactions:
-                    first = parsed.transactions[0]
-                    parsed.opening_balance = (
-                        first.balance + (first.debit or 0) - (first.credit or 0)
-                    )
                 result = validate_bank_statement(parsed)
                 outcome = decide_outcome(
                     result, LayoutMatch(best.slug, best.score, trusted=True),

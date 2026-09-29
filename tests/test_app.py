@@ -71,6 +71,71 @@ def _make_document(db_url, split, owner_label):
         return doc.id
 
 
+def test_post_upload_first_row_balance_none_does_not_crash(tmp_path, monkeypatch):
+    """A layout whose first parsed row has balance=None (e.g. an unparseable
+    balance cell) must not crash the upload route with a TypeError from
+    `None + Decimal(...)`. validate_bank_statement already derives the
+    opening balance internally and handles a None first balance gracefully
+    (returning None, which surfaces as the "no_opening_balance" failed
+    check) -- the route must let it do that rather than pre-computing the
+    opening balance itself.
+    """
+    import os
+
+    import crossfoot.app as app_module
+    from crossfoot.types import LayoutMatch, ParsedStatement, Txn
+
+    db_url = os.environ.get("CROSSFOOT_DATABASE_URL", "postgresql+psycopg://localhost/crossfoot")
+    client = _client(tmp_path, db_url, monkeypatch)
+
+    class _StubLayout:
+        slug = "stub_balance_none_v1"
+        document_type = "bank_statement"
+        country = "IN"
+
+        def matches(self, doc):
+            return 1.0
+
+        def parse(self, doc):
+            txns = [
+                Txn(date=date(2026, 9, 1), narration="UNPARSEABLE BALANCE ROW", reference=None,
+                    debit=Decimal("100.00"), credit=None, balance=None, page=0),
+                Txn(date=date(2026, 9, 2), narration="UPI/DR/GROCERY", reference=None,
+                    debit=Decimal("50.00"), credit=None, balance=Decimal("850.00"), page=0),
+            ]
+            return ParsedStatement(
+                currency="INR", locale="en-IN",
+                period_from=date(2026, 9, 1), period_to=date(2026, 9, 2),
+                opening_balance=None, closing_balance=None,
+                brought_forward={}, transactions=txns, masked_account=None,
+            )
+
+    stub = _StubLayout()
+    monkeypatch.setattr(app_module, "_REGISTRY", [stub])
+    monkeypatch.setattr(
+        app_module, "classify",
+        lambda doc: (LayoutMatch(stub.slug, 1.0, trusted=True), None),
+    )
+
+    pdf_path = tmp_path / "balance_none.pdf"
+    generate_statement_pdf(str(pdf_path), opening=Decimal("1000.00"), rows=[
+        (date(2026, 9, 1), "UPI/DR/GROCERY", Decimal("100.00"), None),
+    ])
+    with open(pdf_path, "rb") as f:
+        response = client.post(
+            "/upload",
+            data={"document_type": "bank_statement", "country": "IN", "split": "train",
+                  "source": "self", "owner_label": "balance-none-test"},
+            files={"file": ("balance_none.pdf", f, "application/pdf")},
+            follow_redirects=False,
+        )
+    assert response.status_code == 303, "upload route must not crash on a None first balance"
+
+    detail = client.get(response.headers["location"])
+    assert detail.status_code == 200
+    assert b"no_opening_balance" in detail.content
+
+
 def test_documents_list_hides_holdout_by_default(tmp_path, monkeypatch):
     import os
     db_url = os.environ.get("CROSSFOOT_DATABASE_URL", "postgresql+psycopg://localhost/crossfoot")

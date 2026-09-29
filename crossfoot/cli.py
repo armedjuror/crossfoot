@@ -35,9 +35,6 @@ def _cmd_parse(args):
 
     layout = next(l for l in _REGISTRY if l.slug == best.slug)
     parsed = layout.parse(doc)
-    if parsed.opening_balance is None and parsed.transactions:
-        first = parsed.transactions[0]
-        parsed.opening_balance = first.balance + (first.debit or Decimal(0)) - (first.credit or Decimal(0))
     result = validate_bank_statement(parsed)
     outcome = decide_outcome(result, LayoutMatch(best.slug, best.score, trusted=True), structurally_clean=True)
     print(f'{{"outcome": "{outcome}", "layout": "{best.slug}", "rows": {len(parsed.transactions)}, '
