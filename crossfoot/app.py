@@ -8,7 +8,7 @@ from sqlalchemy import text
 
 from crossfoot.config import Settings, get_settings
 from crossfoot.db import get_session
-from crossfoot.db.models import Document, Parse
+from crossfoot.db.models import Correction, Document, Parse
 
 # Import layouts to trigger registration with the registry (side-effecting import).
 import crossfoot.doctypes.bank_statement.layouts  # noqa: F401
@@ -20,6 +20,40 @@ from crossfoot.types import LayoutMatch
 
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 DATA_DIR = Path("data")
+
+
+def _statement_from_payload(payload: dict):
+    """Build a ParsedStatement from a corrected-transaction JSON payload.
+
+    Amounts always go through Decimal(str(v)) rather than Decimal(v) directly:
+    a payload amount may arrive as a JSON number (parsed to a Python float by
+    the standard json module) rather than a quoted string, and Decimal(float)
+    would silently bake in binary floating-point error (e.g. Decimal(1000.1)
+    != Decimal("1000.1")). Routing every value through str() first normalizes
+    both cases onto the same exact-decimal path.
+    """
+    from datetime import date as date_cls
+    from decimal import Decimal
+
+    from crossfoot.types import ParsedStatement, Txn
+
+    def _dec(v):
+        return Decimal(str(v)) if v is not None else None
+
+    txns = [
+        Txn(date=date_cls.fromisoformat(t["date"]), narration=t["narration"],
+            reference=t.get("reference"), debit=_dec(t.get("debit")), credit=_dec(t.get("credit")),
+            balance=_dec(t.get("balance")), page=t.get("page", 0))
+        for t in payload["transactions"]
+    ]
+    return ParsedStatement(
+        currency="INR", locale="en-IN",
+        period_from=txns[0].date if txns else date_cls.today(),
+        period_to=txns[-1].date if txns else date_cls.today(),
+        opening_balance=_dec(payload.get("opening_balance")),
+        closing_balance=_dec(payload.get("closing_balance")),
+        brought_forward={}, transactions=txns, masked_account=None,
+    )
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -135,6 +169,57 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 .order_by(Parse.created_at.desc()).limit(1)
             ).first()
         return TEMPLATES.TemplateResponse(request, "document_detail.html", {"doc": doc, "parse": parse})
+
+    @app.post("/documents/{document_id}/revalidate")
+    def revalidate(document_id: str, payload: dict):
+        # Dry run only: parses the payload and runs the crossfoot checks, but
+        # never opens a session or writes a Correction/Parse row.
+        parsed = _statement_from_payload(payload)
+        result = validate_bank_statement(parsed)
+        return {
+            "passed": result.passed,
+            "failed_checks": result.failed_checks,
+            "row_breaks": [{"row_index": b.row_index, "expected": str(b.expected), "printed": str(b.printed)}
+                            for b in result.row_breaks],
+        }
+
+    @app.post("/documents/{document_id}/corrections")
+    def save_correction(document_id: str, payload: dict):
+        parsed = _statement_from_payload(payload)
+        # crossfoot_passed is always computed here from validate_bank_statement,
+        # never taken from a client-supplied field in payload.
+        result = validate_bank_statement(parsed)
+        with get_session(settings.database_url) as session:
+            doc = session.get(Document, document_id)
+            correction = Correction(
+                tenant_id=doc.tenant_id, document_id=document_id, corrected_json=payload,
+                crossfoot_passed=result.passed, edit_count=payload.get("edit_count", 0),
+            )
+            session.add(correction)
+            session.commit()
+            return {"id": str(correction.id), "passed": result.passed}
+
+    @app.post("/documents/{document_id}/corrections/{correction_id}/gold")
+    def mark_gold(document_id: str, correction_id: str):
+        with get_session(settings.database_url) as session:
+            target = session.get(Correction, correction_id)
+            if target is None:
+                return {"error": "correction not found"}
+            if not target.crossfoot_passed:
+                # The DB has a check constraint (NOT is_gold OR crossfoot_passed)
+                # that would reject this at commit time anyway; we short-circuit
+                # here so the client gets a clean response instead of a 500 from
+                # a bubbled-up IntegrityError.
+                return {"error": "cannot mark a failing correction as gold"}
+            # Unset any prior gold for this document and set this one gold in
+            # the same transaction/session, so a crash between the two writes
+            # can't leave two golds (violates one_gold_per_document) or zero.
+            session.query(Correction).filter_by(document_id=document_id, is_gold=True).update(
+                {"is_gold": False}
+            )
+            target.is_gold = True
+            session.commit()
+            return {"id": str(target.id), "is_gold": True}
 
     return app
 
